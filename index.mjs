@@ -70,6 +70,15 @@ async function exchange(code, verifier) {
  */
 export async function AnthropicAuthPlugin({ client }) {
   return {
+    "experimental.chat.system.transform": (input, output) => {
+      const prefix =
+        "You are Claude Code, Anthropic's official CLI for Claude.";
+      if (input.model?.providerID === "anthropic") {
+        output.system.unshift(prefix);
+        if (output.system[1])
+          output.system[1] = prefix + "\n\n" + output.system[1];
+      }
+    },
     auth: {
       provider: "anthropic",
       async loader(getAuth, provider) {
@@ -147,7 +156,9 @@ export async function AnthropicAuthPlugin({ client }) {
                     }
                   }
                 } else {
-                  for (const [key, value] of Object.entries(requestInit.headers)) {
+                  for (const [key, value] of Object.entries(
+                    requestInit.headers,
+                  )) {
                     if (typeof value !== "undefined") {
                       requestHeaders.set(key, String(value));
                     }
@@ -155,20 +166,19 @@ export async function AnthropicAuthPlugin({ client }) {
                 }
               }
 
+              // Preserve all incoming beta headers while ensuring OAuth requirements
               const incomingBeta = requestHeaders.get("anthropic-beta") || "";
               const incomingBetasList = incomingBeta
                 .split(",")
                 .map((b) => b.trim())
                 .filter(Boolean);
 
-              const includeClaudeCode = incomingBetasList.includes(
-                "claude-code-20250219",
-              );
-
-              const mergedBetas = [
+              const requiredBetas = [
                 "oauth-2025-04-20",
                 "interleaved-thinking-2025-05-14",
-                ...(includeClaudeCode ? ["claude-code-20250219"] : []),
+              ];
+              const mergedBetas = [
+                ...new Set([...requiredBetas, ...incomingBetasList]),
               ].join(",");
 
               requestHeaders.set("authorization", `Bearer ${auth.access}`);
@@ -184,11 +194,29 @@ export async function AnthropicAuthPlugin({ client }) {
               if (body && typeof body === "string") {
                 try {
                   const parsed = JSON.parse(body);
+
+                  // Sanitize system prompt - server blocks "OpenCode" string
+                  if (parsed.system && Array.isArray(parsed.system)) {
+                    parsed.system = parsed.system.map((item) => {
+                      if (item.type === "text" && item.text) {
+                        return {
+                          ...item,
+                          text: item.text
+                            .replace(/OpenCode/g, "Claude Code")
+                            .replace(/opencode/gi, "Claude"),
+                        };
+                      }
+                      return item;
+                    });
+                  }
+
                   // Add prefix to tools definitions
                   if (parsed.tools && Array.isArray(parsed.tools)) {
                     parsed.tools = parsed.tools.map((tool) => ({
                       ...tool,
-                      name: tool.name ? `${TOOL_PREFIX}${tool.name}` : tool.name,
+                      name: tool.name
+                        ? `${TOOL_PREFIX}${tool.name}`
+                        : tool.name,
                     }));
                   }
                   // Add prefix to tool_use blocks in messages
@@ -197,7 +225,10 @@ export async function AnthropicAuthPlugin({ client }) {
                       if (msg.content && Array.isArray(msg.content)) {
                         msg.content = msg.content.map((block) => {
                           if (block.type === "tool_use" && block.name) {
-                            return { ...block, name: `${TOOL_PREFIX}${block.name}` };
+                            return {
+                              ...block,
+                              name: `${TOOL_PREFIX}${block.name}`,
+                            };
                           }
                           return block;
                         });
@@ -256,7 +287,10 @@ export async function AnthropicAuthPlugin({ client }) {
                     }
 
                     let text = decoder.decode(value, { stream: true });
-                    text = text.replace(/"name"\s*:\s*"mcp_([^"]+)"/g, '"name": "$1"');
+                    text = text.replace(
+                      /"name"\s*:\s*"mcp_([^"]+)"/g,
+                      '"name": "$1"',
+                    );
                     controller.enqueue(encoder.encode(text));
                   },
                 });
