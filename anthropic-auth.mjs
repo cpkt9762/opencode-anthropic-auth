@@ -1,36 +1,34 @@
-import { generatePKCE } from "@openauthjs/openauth/pkce";
+import { generatePKCE } from "@openauthjs/openauth/pkce"
 
-const CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
-const USER_AGENT = "claude-cli/2.1.2 (external, cli)";
+const CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
+const USER_AGENT = "claude-cli/2.1.77 (external, cli)"
+const BASE_HEADERS = {
+  "Content-Type": "application/json",
+  "User-Agent": USER_AGENT,
+}
 
 /**
  * @param {"max" | "console"} mode
  */
 async function authorize(mode) {
-  const pkce = await generatePKCE();
+  const pkce = await generatePKCE()
 
   const url = new URL(
     `https://${mode === "console" ? "console.anthropic.com" : "claude.ai"}/oauth/authorize`,
     import.meta.url,
-  );
-  url.searchParams.set("code", "true");
-  url.searchParams.set("client_id", CLIENT_ID);
-  url.searchParams.set("response_type", "code");
-  url.searchParams.set(
-    "redirect_uri",
-    "https://console.anthropic.com/oauth/code/callback",
-  );
-  url.searchParams.set(
-    "scope",
-    "org:create_api_key user:profile user:inference",
-  );
-  url.searchParams.set("code_challenge", pkce.challenge);
-  url.searchParams.set("code_challenge_method", "S256");
-  url.searchParams.set("state", pkce.verifier);
+  )
+  url.searchParams.set("code", "true")
+  url.searchParams.set("client_id", CLIENT_ID)
+  url.searchParams.set("response_type", "code")
+  url.searchParams.set("redirect_uri", "https://console.anthropic.com/oauth/code/callback")
+  url.searchParams.set("scope", "org:create_api_key user:profile user:inference")
+  url.searchParams.set("code_challenge", pkce.challenge)
+  url.searchParams.set("code_challenge_method", "S256")
+  url.searchParams.set("state", pkce.verifier)
   return {
     url: url.toString(),
     verifier: pkce.verifier,
-  };
+  }
 }
 
 /**
@@ -38,12 +36,10 @@ async function authorize(mode) {
  * @param {string} verifier
  */
 async function exchange(code, verifier) {
-  const splits = code.split("#");
+  const splits = code.split("#")
   const result = await fetch("https://console.anthropic.com/v1/oauth/token", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers: BASE_HEADERS,
     body: JSON.stringify({
       code: splits[0],
       state: splits[1],
@@ -52,18 +48,18 @@ async function exchange(code, verifier) {
       redirect_uri: "https://console.anthropic.com/oauth/code/callback",
       code_verifier: verifier,
     }),
-  });
+  })
   if (!result.ok)
     return {
       type: "failed",
-    };
-  const json = await result.json();
+    }
+  const json = await result.json()
   return {
     type: "success",
     refresh: json.refresh_token,
     access: json.access_token,
     expires: Date.now() + json.expires_in * 1000,
-  };
+  }
 }
 
 /**
@@ -72,18 +68,16 @@ async function exchange(code, verifier) {
 export async function AnthropicAuthPlugin({ client }) {
   return {
     "experimental.chat.system.transform": (input, output) => {
-      const prefix =
-        "You are Claude Code, Anthropic's official CLI for Claude.";
+      const prefix = "You are Claude Code, Anthropic's official CLI for Claude."
       if (input.model?.providerID === "anthropic") {
-        output.system.unshift(prefix);
-        if (output.system[1])
-          output.system[1] = prefix + "\n\n" + output.system[1];
+        output.system.unshift(prefix)
+        if (output.system[1]) output.system[1] = prefix + "\n\n" + output.system[1]
       }
     },
     auth: {
       provider: "anthropic",
       async loader(getAuth, provider) {
-        const auth = await getAuth();
+        const auth = await getAuth()
         if (auth.type === "oauth") {
           // zero out cost for max plan
           for (const model of Object.values(provider.models)) {
@@ -94,7 +88,7 @@ export async function AnthropicAuthPlugin({ client }) {
                 read: 0,
                 write: 0,
               },
-            };
+            }
           }
           return {
             apiKey: "",
@@ -103,28 +97,22 @@ export async function AnthropicAuthPlugin({ client }) {
              * @param {any} init
              */
             async fetch(input, init) {
-              const auth = await getAuth();
-              if (auth.type !== "oauth") return fetch(input, init);
+              const auth = await getAuth()
+              if (auth.type !== "oauth") return fetch(input, init)
               if (!auth.access || auth.expires < Date.now()) {
-                const response = await fetch(
-                  "https://console.anthropic.com/v1/oauth/token",
-                  {
-                    method: "POST",
-                    headers: {
-                      "Content-Type": "application/json",
-                      "User-Agent": USER_AGENT,
-                    },
-                    body: JSON.stringify({
-                      grant_type: "refresh_token",
-                      refresh_token: auth.refresh,
-                      client_id: CLIENT_ID,
-                    }),
-                  },
-                );
+                const response = await fetch("https://console.anthropic.com/v1/oauth/token", {
+                  method: "POST",
+                  headers: BASE_HEADERS,
+                  body: JSON.stringify({
+                    grant_type: "refresh_token",
+                    refresh_token: auth.refresh,
+                    client_id: CLIENT_ID,
+                  }),
+                })
                 if (!response.ok) {
-                  throw new Error(`Token refresh failed: ${response.status}`);
+                  throw new Error(`Token refresh failed: ${response.status}`)
                 }
-                const json = await response.json();
+                const json = await response.json()
                 await client.auth.set({
                   path: {
                     id: "anthropic",
@@ -135,64 +123,57 @@ export async function AnthropicAuthPlugin({ client }) {
                     access: json.access_token,
                     expires: Date.now() + json.expires_in * 1000,
                   },
-                });
-                auth.access = json.access_token;
+                })
+                auth.access = json.access_token
               }
-              const requestInit = init ?? {};
+              const requestInit = init ?? {}
 
-              const requestHeaders = new Headers();
+              const requestHeaders = new Headers()
               if (input instanceof Request) {
                 input.headers.forEach((value, key) => {
-                  requestHeaders.set(key, value);
-                });
+                  requestHeaders.set(key, value)
+                })
               }
               if (requestInit.headers) {
                 if (requestInit.headers instanceof Headers) {
                   requestInit.headers.forEach((value, key) => {
-                    requestHeaders.set(key, value);
-                  });
+                    requestHeaders.set(key, value)
+                  })
                 } else if (Array.isArray(requestInit.headers)) {
                   for (const [key, value] of requestInit.headers) {
                     if (typeof value !== "undefined") {
-                      requestHeaders.set(key, String(value));
+                      requestHeaders.set(key, String(value))
                     }
                   }
                 } else {
-                  for (const [key, value] of Object.entries(
-                    requestInit.headers,
-                  )) {
+                  for (const [key, value] of Object.entries(requestInit.headers)) {
                     if (typeof value !== "undefined") {
-                      requestHeaders.set(key, String(value));
+                      requestHeaders.set(key, String(value))
                     }
                   }
                 }
               }
 
               // Preserve all incoming beta headers while ensuring OAuth requirements
-              const incomingBeta = requestHeaders.get("anthropic-beta") || "";
+              const incomingBeta = requestHeaders.get("anthropic-beta") || ""
               const incomingBetasList = incomingBeta
                 .split(",")
                 .map((b) => b.trim())
-                .filter(Boolean);
+                .filter(Boolean)
 
-              const requiredBetas = [
-                "oauth-2025-04-20",
-                "interleaved-thinking-2025-05-14",
-              ];
-              const mergedBetas = [
-                ...new Set([...requiredBetas, ...incomingBetasList]),
-              ].join(",");
+              const requiredBetas = ["oauth-2025-04-20", "interleaved-thinking-2025-05-14"]
+              const mergedBetas = [...new Set([...requiredBetas, ...incomingBetasList])].join(",")
 
-              requestHeaders.set("authorization", `Bearer ${auth.access}`);
-              requestHeaders.set("anthropic-beta", mergedBetas);
-              requestHeaders.set("user-agent", USER_AGENT);
-              requestHeaders.delete("x-api-key");
+              requestHeaders.set("authorization", `Bearer ${auth.access}`)
+              requestHeaders.set("anthropic-beta", mergedBetas)
+              requestHeaders.set("user-agent", USER_AGENT)
+              requestHeaders.delete("x-api-key")
 
-              const TOOL_PREFIX = "mcp_";
-              let body = requestInit.body;
+              const TOOL_PREFIX = "mcp_"
+              let body = requestInit.body
               if (body && typeof body === "string") {
                 try {
-                  const parsed = JSON.parse(body);
+                  const parsed = JSON.parse(body)
 
                   // Sanitize system prompt - server blocks "OpenCode" string
                   // Note: (?<!\/) preserves paths like /path/to/opencode-foo
@@ -201,23 +182,19 @@ export async function AnthropicAuthPlugin({ client }) {
                       if (item.type === "text" && item.text) {
                         return {
                           ...item,
-                          text: item.text
-                            .replace(/OpenCode/g, "Claude Code")
-                            .replace(/(?<!\/)opencode/gi, "Claude"),
-                        };
+                          text: item.text.replace(/OpenCode/g, "Claude Code").replace(/(?<!\/)opencode/gi, "Claude"),
+                        }
                       }
-                      return item;
-                    });
+                      return item
+                    })
                   }
 
                   // Add prefix to tools definitions
                   if (parsed.tools && Array.isArray(parsed.tools)) {
                     parsed.tools = parsed.tools.map((tool) => ({
                       ...tool,
-                      name: tool.name
-                        ? `${TOOL_PREFIX}${tool.name}`
-                        : tool.name,
-                    }));
+                      name: tool.name ? `${TOOL_PREFIX}${tool.name}` : tool.name,
+                    }))
                   }
                   // Add prefix to tool_use blocks in messages
                   if (parsed.messages && Array.isArray(parsed.messages)) {
@@ -228,129 +205,116 @@ export async function AnthropicAuthPlugin({ client }) {
                             return {
                               ...block,
                               name: `${TOOL_PREFIX}${block.name}`,
-                            };
+                            }
                           }
-                          return block;
-                        });
+                          return block
+                        })
                       }
-                      return msg;
-                    });
+                      return msg
+                    })
                   }
-                  body = JSON.stringify(parsed);
+                  body = JSON.stringify(parsed)
                 } catch (e) {
                   // ignore parse errors
                 }
               }
 
-              let requestInput = input;
-              let requestUrl = null;
+              let requestInput = input
+              let requestUrl = null
               try {
                 if (typeof input === "string" || input instanceof URL) {
-                  requestUrl = new URL(input.toString());
+                  requestUrl = new URL(input.toString())
                 } else if (input instanceof Request) {
-                  requestUrl = new URL(input.url);
+                  requestUrl = new URL(input.url)
                 }
               } catch {
-                requestUrl = null;
+                requestUrl = null
               }
 
-              if (
-                requestUrl &&
-                requestUrl.pathname === "/v1/messages" &&
-                !requestUrl.searchParams.has("beta")
-              ) {
-                requestUrl.searchParams.set("beta", "true");
-                requestInput =
-                  input instanceof Request
-                    ? new Request(requestUrl.toString(), input)
-                    : requestUrl;
+              if (requestUrl && requestUrl.pathname === "/v1/messages" && !requestUrl.searchParams.has("beta")) {
+                requestUrl.searchParams.set("beta", "true")
+                requestInput = input instanceof Request ? new Request(requestUrl.toString(), input) : requestUrl
               }
 
               const response = await fetch(requestInput, {
                 ...requestInit,
                 body,
                 headers: requestHeaders,
-              });
+              })
 
               // Transform streaming response to rename tools back
               if (response.body) {
-                const reader = response.body.getReader();
-                const decoder = new TextDecoder();
-                const encoder = new TextEncoder();
+                const reader = response.body.getReader()
+                const decoder = new TextDecoder()
+                const encoder = new TextEncoder()
 
                 const stream = new ReadableStream({
                   async pull(controller) {
-                    const { done, value } = await reader.read();
+                    const { done, value } = await reader.read()
                     if (done) {
-                      controller.close();
-                      return;
+                      controller.close()
+                      return
                     }
 
-                    let text = decoder.decode(value, { stream: true });
-                    text = text.replace(
-                      /"name"\s*:\s*"mcp_([^"]+)"/g,
-                      '"name": "$1"',
-                    );
-                    controller.enqueue(encoder.encode(text));
+                    let text = decoder.decode(value, { stream: true })
+                    text = text.replace(/"name"\s*:\s*"mcp_([^"]+)"/g, '"name": "$1"')
+                    controller.enqueue(encoder.encode(text))
                   },
-                });
+                })
 
                 return new Response(stream, {
                   status: response.status,
                   statusText: response.statusText,
                   headers: response.headers,
-                });
+                })
               }
 
-              return response;
+              return response
             },
-          };
+          }
         }
 
-        return {};
+        return {}
       },
       methods: [
         {
           label: "Claude Pro/Max",
           type: "oauth",
           authorize: async () => {
-            const { url, verifier } = await authorize("max");
+            const { url, verifier } = await authorize("max")
             return {
               url: url,
               instructions: "Paste the authorization code here: ",
               method: "code",
               callback: async (code) => {
-                const credentials = await exchange(code, verifier);
-                return credentials;
+                const credentials = await exchange(code, verifier)
+                return credentials
               },
-            };
+            }
           },
         },
         {
           label: "Create an API Key",
           type: "oauth",
           authorize: async () => {
-            const { url, verifier } = await authorize("console");
+            const { url, verifier } = await authorize("console")
             return {
               url: url,
               instructions: "Paste the authorization code here: ",
               method: "code",
               callback: async (code) => {
-                const credentials = await exchange(code, verifier);
-                if (credentials.type === "failed") return credentials;
-                const result = await fetch(
-                  `https://api.anthropic.com/api/oauth/claude_cli/create_api_key`,
-                  {
-                    method: "POST",
-                    headers: {
-                      "Content-Type": "application/json",
-                      authorization: `Bearer ${credentials.access}`,
-                    },
+                const credentials = await exchange(code, verifier)
+                if (credentials.type === "failed") return credentials
+                const result = await fetch(`https://api.anthropic.com/api/oauth/claude_cli/create_api_key`, {
+                  method: "POST",
+                  headers: {
+                    ...BASE_HEADERS,
+                    authorization: `Bearer ${credentials.access}`,
                   },
-                ).then((r) => r.json());
-                return { type: "success", key: result.raw_key };
+                }).then((r) => r.json())
+                return { type: "success", key: result.raw_key }
               },
-            };
+            }
           },
         },
         {
@@ -360,5 +324,5 @@ export async function AnthropicAuthPlugin({ client }) {
         },
       ],
     },
-  };
+  }
 }
