@@ -1,6 +1,7 @@
 import { generatePKCE } from "@openauthjs/openauth/pkce";
 
 const CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
+const USER_AGENT = "claude-cli/2.1.2 (external, cli)";
 
 /**
  * @param {"max" | "console"} mode
@@ -111,6 +112,7 @@ export async function AnthropicAuthPlugin({ client }) {
                     method: "POST",
                     headers: {
                       "Content-Type": "application/json",
+                      "User-Agent": USER_AGENT,
                     },
                     body: JSON.stringify({
                       grant_type: "refresh_token",
@@ -183,10 +185,7 @@ export async function AnthropicAuthPlugin({ client }) {
 
               requestHeaders.set("authorization", `Bearer ${auth.access}`);
               requestHeaders.set("anthropic-beta", mergedBetas);
-              requestHeaders.set(
-                "user-agent",
-                "claude-cli/2.1.2 (external, cli)",
-              );
+              requestHeaders.set("user-agent", USER_AGENT);
               requestHeaders.delete("x-api-key");
 
               const TOOL_PREFIX = "mcp_";
@@ -196,6 +195,7 @@ export async function AnthropicAuthPlugin({ client }) {
                   const parsed = JSON.parse(body);
 
                   // Sanitize system prompt - server blocks "OpenCode" string
+                  // Note: (?<!\/) preserves paths like /path/to/opencode-foo
                   if (parsed.system && Array.isArray(parsed.system)) {
                     parsed.system = parsed.system.map((item) => {
                       if (item.type === "text" && item.text) {
@@ -203,7 +203,7 @@ export async function AnthropicAuthPlugin({ client }) {
                           ...item,
                           text: item.text
                             .replace(/OpenCode/g, "Claude Code")
-                            .replace(/opencode/gi, "Claude"),
+                            .replace(/(?<!\/)opencode/gi, "Claude"),
                         };
                       }
                       return item;
